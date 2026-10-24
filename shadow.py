@@ -27,14 +27,17 @@ secret = modal.Secret.from_name("k8s-router")  # GITHUB_TOKEN, ANTHROPIC_API_KEY
 image = (modal.Image.debian_slim(python_version="3.11")
          .pip_install("torch==2.5.1", "transformers==4.48.3", "numpy<2.2", "anthropic>=0.70",
                       "requests>=2.31", "pyyaml>=6")
-         .add_local_file("data/raw/sigs.yaml", "/root/sigs.yaml")
-         .add_local_python_source("router", "fetch_issues"))
+         .pip_install("scikit-learn==1.6.1")
+         .add_local_file("data/raw/sigs.yaml", "/root/data/raw/sigs.yaml")
+         .add_local_file("data/raw/owners_map.json", "/root/data/raw/owners_map.json")
+         .add_local_file("data/processed/dataset.jsonl", "/root/data/processed/dataset.jsonl")
+         .add_local_python_source("router", "fetch_issues", "agent"))
 MNT = "/vol"
 DB = f"{MNT}/shadow/shadow.db"
 
 # ---- cascade config: thresholds chosen on val (see RESULTS.md); bump the version when they change
 CONFIG = {
-    "version": "v2-2026-10-24",
+    "version": "v3-2026-10-24",
     "m2_run": "modernbert-s0",
     "m2_temperature": 1.171,   # fitted on val for this run (m2_eval.py modernbert-s0)
     "t_m2_alone": 0.99,        # M2 confident enough to route by itself
@@ -42,6 +45,8 @@ CONFIG = {
     "llm_cache": False,        # live traffic is ~1 issue/hour, so a 5-min cache is never hit and writes cost 1.25x
     "llm_model": "claude-haiku-5-5",
     "daily_llm_budget_usd": 1.00,  # over budget -> M2-only mode for the rest of the UTC day
+    "agent_model": "claude-haiku-5-5",
+    "t_agent": 0.71,           # agent answer trusted at/above this (picked on val, see agent_eval.py score)
 }
 
 ISSUES_Q = """
@@ -82,6 +87,11 @@ def db():
       first_sig_at TEXT, routed_by TEXT);
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
     """)
+    have = {r[1] for r in con.execute("PRAGMA table_info(predictions)")}
+    for col, typ in (("agent_sig", "TEXT"), ("agent_conf", "REAL"), ("agent_reason", "TEXT"), ("agent_tools", "TEXT"),
+                     ("agent_ms", "REAL"), ("agent_cost", "REAL"), ("agent_error", "TEXT")):
+        if col not in have:  # additive migration; old rows keep NULLs
+            con.execute(f"ALTER TABLE predictions ADD COLUMN {col} {typ}")
     return con
 
 
@@ -119,13 +129,21 @@ class M2:
             logits = self.model(**x).logits[0] / CONFIG["m2_temperature"]
             p = self.torch.softmax(logits, -1)
         i = int(p.argmax())
+        self._last = p
         return self.classes[i], float(p[i]), (time.time() - t) * 1000
+
+    def top3(self, text):
+        p = self._last  # probabilities from the __call__ on this same text
+        idx = p.argsort(descending=True)[:3].tolist()
+        return [(self.classes[i], float(p[i])) for i in idx]
 
 
 @app.function(image=image, volumes={MNT: vol}, secrets=[secret], cpu=2, memory=4096, timeout=900,
               schedule=modal.Period(minutes=10), max_containers=1)
 def poll():
     import anthropic
+    os.chdir("/root")  # router.tools reads data/... relative paths
+    from agent import InProcess, run as run_agent
     from fetch_issues import GraphQL
     from router.data import clean_text
     from router.llm import classify, sig_catalog
@@ -157,7 +175,7 @@ def poll():
         return
 
     m2 = M2()
-    labels, catalog = sig_catalog("/root/sigs.yaml")
+    labels, catalog = sig_catalog("/root/data/raw/sigs.yaml")
     client = anthropic.Anthropic(max_retries=4)   # SDK retries 429/5xx with exponential backoff
     day = now.strftime("%Y-%m-%d")
     for n in reversed(new):  # oldest first
@@ -175,14 +193,35 @@ def poll():
         else:
             err = "budget"
         decision, sig = decide(m2_sig, m2_conf, llm)
+        ag, ag_err = {}, None
+        if decision == "human":  # third layer: only for issues the cheap layers would hand to a person
+            spent = float(kv_get(con, f"llm_cost:{day}", 0))
+            if spent < CONFIG["daily_llm_budget_usd"]:
+                try:
+                    ag = run_agent(client, CONFIG["agent_model"], labels, text, n["createdAt"],
+                                   m2.top3(text), (llm or {}).get("sig"), InProcess())
+                    kv_set(con, f"llm_cost:{day}", spent + ag["cost"])
+                    if ag["sig"] != "none" and not ag.get("duplicate_of") and ag["confidence"] >= CONFIG["t_agent"]:
+                        decision, sig = "auto", ag["sig"]
+                except Exception as e:
+                    ag_err = f"{type(e).__name__}: {str(e)[:200]}"
+            else:
+                ag_err = "budget"
         llm = llm or {}
-        con.execute("INSERT OR IGNORE INTO predictions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+        con.execute("INSERT OR IGNORE INTO predictions (issue_id, number, created_at, seen_at, text_hash, title, "
+                    "author, labels_at_seen, m2_sig, m2_conf, m2_ms, llm_sig, llm_conf, llm_reason, llm_ms, llm_in_tok, "
+                    "llm_out_tok, llm_cache_read, llm_cost, llm_error, decision, decided_sig, total_ms, config_version) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             n["id"], n["number"], n["createdAt"], datetime.now(timezone.utc).isoformat(),
             hashlib.sha256(text.encode()).hexdigest()[:16], n["title"], (n.get("author") or {}).get("login"),
             json.dumps([l["name"] for l in n["labels"]["nodes"]]),
             m2_sig, m2_conf, m2_ms, llm.get("sig"), llm.get("confidence"), llm.get("reason"), llm.get("ms"),
             llm.get("in_tok"), llm.get("out_tok"), llm.get("cache_read"), llm.get("cost"), err,
             decision, sig, (time.time() - t0) * 1000, CONFIG["version"]))
+        con.execute("UPDATE predictions SET agent_sig=?, agent_conf=?, agent_reason=?, agent_tools=?, agent_ms=?, "
+                    "agent_cost=?, agent_error=? WHERE issue_id=?",
+                    (ag.get("sig"), ag.get("confidence"), ag.get("reason"), json.dumps(ag.get("tools", [])),
+                     ag.get("ms"), ag.get("cost"), ag_err, n["id"]))
         con.commit()  # one row at a time: a crash mid-batch never loses or duplicates work
         print(f"#{n['number']}: M2 {m2_sig} {m2_conf:.2f} | LLM {llm.get('sig')} | {decision} {sig or ''}")
     con.close()
@@ -256,5 +295,7 @@ def report():
         p95 = sorted(lat)[min(len(lat) - 1, round(0.95 * (len(lat) - 1)))] / 1000  # nearest-rank
         print(f"latency p50 {p50:.1f}s p95 {p95:.1f}s (n={len(lat)}); "
               f"LLM cost ${cost:.4f} total, ${1000*cost/max(n,1):.2f} per 1k issues")
+    ag = con.execute("SELECT COUNT(agent_sig), SUM(agent_cost), COUNT(agent_error) FROM predictions").fetchone()
+    print(f"agent runs {ag[0]}, agent cost ${ag[1] or 0:.4f}, agent errors {ag[2]}")
     by_ver = con.execute("SELECT config_version, COUNT(*) FROM predictions GROUP BY 1").fetchall()
     print("rows by config version:", dict(by_ver))

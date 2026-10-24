@@ -60,3 +60,19 @@ never reused and every call pays the 1.25x cache-write price. Config v2 turns ca
   From the 6-issue audit, these are duplicates, support questions, and bugs nobody picked up (where routing would arguably help).
   -> The agent layer targets exactly this: duplicate search + support detection.
 - LLM spend under the $1/day budget rule: $0.49 over 109 days.
+
+## Agent layer (M1: Haiku 5.5 + 3 tools, only on issues the cascade sends to a human)
+317 human-bound issues (val+test), 0 errors, avg 2.8 turns, $0.0012 per issue ($0.39 total), p50 6.7 s.
+Trust threshold 0.71 picked on val.
+
+| | val | test |
+|---|---|---|
+| auto-route share of labeled issues | 78.7% | **77.8%** (was 68.0% without the agent) |
+| precision on those | 0.950 | **0.959** [0.93,0.98] |
+| strict precision (no-SIG auto-routes counted wrong) | 0.847 | 0.855 |
+
+- Agent top-1 on these hard issues: 0.783. When it sides with ModernBERT it is right 87%, with Haiku 73%, with neither 58%:
+  its main value is deciding which of two disagreeing models to trust.
+- Says "none" rarely but accurately: 20 times, 17 truly no-SIG (85%), catching 25% of them. Never flagged a duplicate.
+- Tool use: search_similar_issues 506, lookup_owners 381, get_sig_charter 109 calls.
+- Shadow service config v3 adds this layer live.
