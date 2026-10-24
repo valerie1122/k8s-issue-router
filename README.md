@@ -20,9 +20,12 @@ Thresholds are chosen on the validation months and applied unchanged to test.
 | Embedding kNN vote (bge-base) | 0.81 | 49.7% | 0.963 | ~$0 |
 | Fine-tuned ModernBERT-base (calibrated) | 0.87 ± 0.01 (3 seeds) | 55–64% | 0.96–0.98 | ~$0 |
 | Claude Haiku 5.5, zero-shot | 0.88 | 77.3% | 0.938 | $0.22 |
-| **Cascade: ModernBERT → agreement → agent** | – | **77.8%** | **0.959** [0.93, 0.98] | ~$0.6 |
+| **Cascade: ModernBERT → agreement → agent** | – | **76.0%** | **0.961** [0.93, 0.98] | ~$0.9 |
+| Claude Sonnet 5.5, zero-shot (for comparison) | 0.91 | 80.0% | 0.955 | ~$15 |
 
-- On issues a human (not the author) had to route, the cascade auto-routes 2 in 3, and gets 30 of 31 right.
+- Sonnet alone does about as well as the whole cascade, at ~17x the live cost: the cascade buys cost, not accuracy.
+- ModernBERT settles 19% of issues alone; 81% get one Haiku call; 26% also get the agent.
+- On issues a human (not the author) had to route, the cascade (config v2) auto-routes 2 in 3, and gets 30 of 31 right.
 - Strict view: counting every auto-routed issue that never got a SIG as an error, precision is 0.855.
   Most of those are issues nobody picked up or that were fixed without a label, so this is a floor, not the real error rate.
 - Full tables, seed variance, contamination check and error analysis: [RESULTS.md](RESULTS.md).
@@ -49,7 +52,7 @@ flowchart LR
     L1 -->|unsure| L2[2. Haiku zero-shot]
     L2 -->|agrees with ModernBERT| AUTO
     L2 -->|disagrees| L3[3. Agent + tools]
-    L3 -->|conf ≥ 0.71| AUTO
+    L3 -->|conf ≥ 0.73| AUTO
     L3 -->|unsure / none| HUMAN[hand to human]
     AUTO & HUMAN --> DB[(SQLite on Modal volume<br/>predictions, cost, latency,<br/>config version)]
     BF[hourly backfill:<br/>what humans actually chose] --> DB

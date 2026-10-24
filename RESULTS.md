@@ -97,10 +97,11 @@ So most auto-routes of these issues are not harmful; issues that truly should no
 |---|---|---|---|
 | Haiku 5.5 zero-shot | 0.880 | 77.3% / 0.938 | ~$0.7 |
 | Sonnet 5.5 zero-shot | **0.907** (macro recall 0.916 vs 0.818) | **80.0% / 0.955** | ~$15 (7k-token prompt, no cache hits at 1 issue/h) |
-| Cascade + agent v1 (served, config v4) | – | 76.0% / 0.961 [0.93,0.98]; strict 0.863 | ~$0.6 |
-| Cascade + agent v2 prompt | – | 70.7% / 0.974 [0.95,0.99]; strict 0.879 | ~$0.6 |
+| Cascade + agent v1 (served, config v4) | – | 76.0% / 0.961 [0.93,0.98]; strict 0.863 | ~$0.9 |
+| Cascade + agent v2 prompt | – | 70.7% / 0.974 [0.95,0.99]; strict 0.879 | ~$0.9 |
 
-- Sonnet alone roughly matches the whole cascade, at ~25x the live cost. The cascade's point is cost, not accuracy.
+- Sonnet alone roughly matches the whole cascade, at ~17x the live cost. The cascade's point is cost, not accuracy.
+- Where the cascade spends (test): ModernBERT alone settles 19% of issues, 81% get a Haiku call ($0.58/1k), 26% also get the agent ($0.32/1k): ~$0.90 per 1k issues.
 - Prompt v2 (explicit do-not-route cases) trades 5 points of coverage for 1.3 points of precision; "none" recall 25% -> 32%.
   Serving stays on v1 because the goal is max coverage at >= 95% precision.
 - Too-short rule (< 30 body words -> human): 4% of issues; agent threshold re-tuned 0.71 -> 0.73.
@@ -120,5 +121,4 @@ Pulled 1 year of pytorch/pytorch (7,922 issues) to port the router. What the dat
   would learn to copy the bot. Building the pytorch router was stopped here; the multi-repo code (router/repos.py) stays.
 
 Takeaway for the k8s work: an LLM-first triager is what a large project chose to run in production; the k8s cascade
-reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound) while sending ~half of issues through
-no LLM at all.
+reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound) at about $0.9 per 1k issues.
