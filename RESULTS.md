@@ -105,3 +105,20 @@ So most auto-routes of these issues are not harmful; issues that truly should no
   Serving stays on v1 because the goal is max coverage at >= 95% precision.
 - Too-short rule (< 30 body words -> human): 4% of issues; agent threshold re-tuned 0.71 -> 0.73.
 - Neither LLM says "none" much: Sonnet 14/130, Haiku 13/130 on issues that never got a SIG.
+
+## PyTorch portability check (2026-10-24): the job is already done there, by a Claude bot
+Pulled 1 year of pytorch/pytorch (7,922 issues) to port the router. What the data showed:
+- PyTorch routes with `oncall: <queue>` plus ~150 `module:` labels. 51% of issues get an oncall queue (69% of those are `pt2`).
+- In **Feb 2026 maintainer routing collapsed from ~58% of issues to 1-8%**: github-actions took over (73-84% of first
+  routing labels). The repo runs `.github/workflows/claude-issue-triage.yml` (plus a distributed-triage variant):
+  a Claude-based issue triager in production.
+- How often do humans correct it? On 3,219 bot-routed issues (Feb 15 - Sep 24, 30-day window):
+  any routing-label change by a human 12.1%; a bot label removed 5.3%; a label added 9.6%;
+  **oncall queue removed 3.3%** (48 of 1,471). `pt2` 13/1031, `distributed` 4/259.
+  Caveat: "not corrected" is not "correct" (silence bias), so ~97% is an upper bound on its oncall precision.
+- Consequence: after Feb 2026 almost every pytorch label is the bot's own output, so a model trained or scored on it
+  would learn to copy the bot. Building the pytorch router was stopped here; the multi-repo code (router/repos.py) stays.
+
+Takeaway for the k8s work: an LLM-first triager is what a large project chose to run in production; the k8s cascade
+reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound) while sending ~half of issues through
+no LLM at all.
