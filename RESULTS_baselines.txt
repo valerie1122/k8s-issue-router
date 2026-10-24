@@ -1,0 +1,26 @@
+[val]
+majority(node)         all              n= 356  top1 0.348 [0.30,0.40]  macroR 0.119  cov@90 0.0%  cov@95 0.0%  ECE 0.152
+majority(node)         needs_routing    n= 200  top1 0.340 [0.28,0.41]  macroR 0.120  cov@90 0.0%  cov@95 0.0%  ECE 0.160
+majority(node)         routed_by_other  n=  69  top1 0.449 [0.34,0.57]  macroR 0.133  cov@90 0.0%  cov@95 0.0%  ECE 0.051
+[val]
+B0 tfidf+logreg        all              n= 356  top1 0.775 [0.73,0.82]  macroR 0.585  cov@90 65.7%  cov@95 54.5%  ECE 0.336
+B0 tfidf+logreg        needs_routing    n= 200  top1 0.740 [0.68,0.80]  macroR 0.550  cov@90 61.0%  cov@95 54.0%  ECE 0.301
+B0 tfidf+logreg        routed_by_other  n=  69  top1 0.710 [0.59,0.80]  macroR 0.577  cov@90 58.0%  cov@95 49.3%  ECE 0.301
+[val]
+B1 tfidf-kNN           all              n= 356  top1 0.652 [0.60,0.70]  macroR 0.450  cov@90 37.6%  cov@95 29.2%  ECE 0.184
+B1 tfidf-kNN           needs_routing    n= 200  top1 0.610 [0.54,0.67]  macroR 0.380  cov@90 30.5%  cov@95 22.0%  ECE 0.181
+B1 tfidf-kNN           routed_by_other  n=  69  top1 0.638 [0.52,0.74]  macroR 0.381  cov@90 36.2%  cov@95 33.3%  ECE 0.213
+
+[test]
+majority(node)         all              n= 441  top1 0.401 [0.36,0.45]  macroR 0.170  cov@90 0.0%  cov@95 0.0%  ECE 0.099
+majority(node)         needs_routing    n= 180  top1 0.367 [0.30,0.44]  macroR 0.140  cov@90 0.0%  cov@95 0.0%  ECE 0.133
+majority(node)         routed_by_other  n=  47  top1 0.468 [0.33,0.61]  macroR 0.090  cov@90 0.0%  cov@95 0.0%  ECE 0.032
+[test]
+B0 tfidf+logreg        all              n= 441  top1 0.751 [0.71,0.79]  macroR 0.564  cov@90 60.8%  cov@95 38.5%  ECE 0.318
+B0 tfidf+logreg        needs_routing    n= 180  top1 0.756 [0.69,0.81]  macroR 0.658  cov@90 62.2%  cov@95 45.6%  ECE 0.327
+B0 tfidf+logreg        routed_by_other  n=  47  top1 0.660 [0.52,0.78]  macroR 0.454  cov@90 48.9%  cov@95 23.4%  ECE 0.306
+[test]
+B1 tfidf-kNN           all              n= 441  top1 0.678 [0.63,0.72]  macroR 0.493  cov@90 36.7%  cov@95 24.3%  ECE 0.213
+B1 tfidf-kNN           needs_routing    n= 180  top1 0.617 [0.54,0.68]  macroR 0.435  cov@90 27.8%  cov@95 16.7%  ECE 0.172
+B1 tfidf-kNN           routed_by_other  n=  47  top1 0.553 [0.41,0.69]  macroR 0.402  cov@90 12.8%  cov@95 12.8%  ECE 0.175
+
