@@ -4,3 +4,4 @@ numpy>=1.26
 scikit-learn>=1.5
 anthropic>=0.70
 modal>=1.0
+mcp>=1.10

@@ -50,3 +50,13 @@ Cascade with the served model (seed 0, agreement rule, thresholds from val): aim
 First 13 h: 2 new issues (weekend night), both captured; 1 auto-routed, correct. Too small to mean anything yet.
 Live LLM cost was $0.72 per 1k issues, ~3x the batch estimate: issues arrive ~1 per hour, so the 5-minute prompt cache is
 never reused and every call pays the 1.25x cache-write price. Config v2 turns caching off for live traffic.
+
+## Replay backtest (shadow decision code, test period in creation order)
+`python replay.py` runs `shadow.decide` with `shadow.CONFIG` (v2) over the stored model outputs.
+- 441 test issues with a 30-day answer: auto-routed 68.0%, precision 0.973 [0.95,0.99] (matches the offline cascade).
+- Issues a human other than the author had to route: router would auto-route 31 of 47, 30 correct; humans took median 12 h (p75 91 h).
+- **Weak spot: 33 of 67 issues that never got a SIG were auto-routed anyway.** Counting those as errors, strict precision is 0.877.
+  A "should this be routed at all" classifier (bge + logreg) only reaches AUC 0.73; gating on it trades ~5 points of coverage for ~1 point of strict precision.
+  From the 6-issue audit, these are duplicates, support questions, and bugs nobody picked up (where routing would arguably help).
+  -> The agent layer targets exactly this: duplicate search + support detection.
+- LLM spend under the $1/day budget rule: $0.49 over 109 days.
