@@ -29,6 +29,21 @@ paths or components the issue mentions, read a charter when two SIGs overlap. Us
 calls, then call submit_decision. confidence = probability a Kubernetes triager would agree."""
 
 
+SYSTEM_V2 = SYSTEM + """
+
+Answer "none" (do not route) in these cases, which humans in this repo leave without a SIG:
+- placeholder or embargoed security reports ("CVE-...: placeholder", "details after public release"),
+  and dependency-scanner CVE findings with no Kubernetes-specific analysis
+- the problem is in another project or repo (kubectl plugins, cloud-provider products, Helm charts,
+  minikube/kind, a vendor's distribution); say which in the reason
+- usage or "how do I" questions with no bug or feature request
+- empty, test, spam or unreadable issues
+When in doubt between a real SIG and "none", prefer the SIG only if the issue names Kubernetes code,
+a component, or a failing upstream test."""
+
+PROMPTS = {"v1": SYSTEM, "v2": SYSTEM_V2}
+
+
 def submit_tool(labels):
     return {"name": "submit_decision", "strict": True,
             "description": "Final routing decision. Call exactly once.",
@@ -91,7 +106,7 @@ def cost(u):
             + (u.cache_read_input_tokens or 0) * PRICE["cache_read"] + u.output_tokens * PRICE["output"]) / 1e6
 
 
-def run(client, model, labels, text, created_at, m2_top3, llm_guess, tools_backend):
+def run(client, model, labels, text, created_at, m2_top3, llm_guess, tools_backend, system=SYSTEM):
     t0 = time.time()
     msgs = [{"role": "user", "content": user_message(text, m2_top3, llm_guess)}]
     defs = tool_defs(labels)
@@ -99,7 +114,7 @@ def run(client, model, labels, text, created_at, m2_top3, llm_guess, tools_backe
     trace = []
     for turn in range(MAX_TURNS + 1):
         force = turn == MAX_TURNS
-        r = client.messages.create(model=model, max_tokens=800, system=SYSTEM, tools=defs, messages=msgs,
+        r = client.messages.create(model=model, max_tokens=800, system=system, tools=defs, messages=msgs,
                                    tool_choice={"type": "tool", "name": "submit_decision"} if force else {"type": "auto"})
         usage["in"] += r.usage.input_tokens
         usage["out"] += r.usage.output_tokens

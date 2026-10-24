@@ -37,7 +37,7 @@ DB = f"{MNT}/shadow/shadow.db"
 
 # ---- cascade config: thresholds chosen on val (see RESULTS.md); bump the version when they change
 CONFIG = {
-    "version": "v3-2026-10-24",
+    "version": "v4-2026-10-24",
     "m2_run": "modernbert-s0",
     "m2_temperature": 1.171,   # fitted on val for this run (m2_eval.py modernbert-s0)
     "t_m2_alone": 0.99,        # M2 confident enough to route by itself
@@ -45,6 +45,7 @@ CONFIG = {
     "llm_cache": False,        # live traffic is ~1 issue/hour, so a 5-min cache is never hit and writes cost 1.25x
     "llm_model": "claude-haiku-5-5",
     "daily_llm_budget_usd": 1.00,  # over budget -> M2-only mode for the rest of the UTC day
+    "min_body_words": 30,      # thinner issues go straight to a human (4% of issues; models are 60% right there)
     "agent_model": "claude-haiku-5-5",
     "t_agent": 0.71,           # agent answer trusted at/above this (picked on val, see agent_eval.py score)
 }
@@ -104,7 +105,21 @@ def kv_set(con, k, v):
     con.execute("INSERT INTO kv VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, str(v)))
 
 
-def decide(m2_sig, m2_conf, llm):
+def body_words(text):
+    """English words in the body, not counting the title or the issue template's ### headings."""
+    import re
+    body = text.split("\n", 1)[1] if "\n" in text else ""
+    body = re.sub(r"###[^\n]*", "", body)
+    return len(re.findall(r"[A-Za-z]{2,}", body))
+
+
+def too_short(text):
+    return body_words(text) < CONFIG["min_body_words"]
+
+
+def decide(m2_sig, m2_conf, llm, text=None):
+    if text is not None and too_short(text):
+        return "human", None
     if m2_conf >= CONFIG["t_m2_alone"]:
         return "auto", m2_sig
     if llm and llm.get("sig") == m2_sig and m2_conf >= CONFIG["t_m2_agree"]:
@@ -192,9 +207,11 @@ def poll():
                 err = f"{type(e).__name__}: {str(e)[:200]}"
         else:
             err = "budget"
-        decision, sig = decide(m2_sig, m2_conf, llm)
+        decision, sig = decide(m2_sig, m2_conf, llm, text)
         ag, ag_err = {}, None
-        if decision == "human":  # third layer: only for issues the cheap layers would hand to a person
+        if decision == "human" and too_short(text):
+            ag_err = "too_short"   # no point asking the agent about an empty issue
+        elif decision == "human":  # third layer: only for issues the cheap layers would hand to a person
             spent = float(kv_get(con, f"llm_cost:{day}", 0))
             if spent < CONFIG["daily_llm_budget_usd"]:
                 try:

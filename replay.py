@@ -34,7 +34,7 @@ for r in rows:
     if spent[day] < CONFIG["daily_llm_budget_usd"]:   # same budget rule as the service
         l = llm.get(r["number"])
         spent[day] += a.llm_cost_per_issue
-    decision, sig = decide(p["sig"], p["confidence"], l)
+    decision, sig = decide(p["sig"], p["confidence"], l, r["text"])
     out.append((r, decision, sig))
 
 labeled = [(r, d, s) for r, d, s in out if r["gold"]]

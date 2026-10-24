@@ -17,6 +17,10 @@ from router.eval import wilson
 OUT = Path("data/preds/agent_runs.jsonl")
 
 
+def out_path(prompt):
+    return OUT if prompt == "v1" else Path(f"data/preds/agent_runs_{prompt}.jsonl")
+
+
 def m2_top3(run="modernbert-s0"):
     meta = json.load(open(f"data/runs/{run}/meta.json"))
     C, T = meta["classes"], 1.171
@@ -31,7 +35,7 @@ def m2_top3(run="modernbert-s0"):
 
 
 def load_cases():
-    from shadow import decide
+    from shadow import decide, too_short
     rows = [json.loads(l) for l in open("data/processed/dataset.jsonl")]
     m2 = {p["number"]: p for sp in ("val", "test") for p in json.load(open(f"data/preds/M2s0_{sp}.json"))}
     llm = {p["number"]: p for sp in ("val", "test") for p in json.load(open(f"data/preds/B2-claude-haiku-5-5_{sp}.json"))}
@@ -41,32 +45,38 @@ def load_cases():
             continue
         a = m2[r["number"]]
         d, s = decide(a["sig"], a["confidence"], llm.get(r["number"]))
-        cases.append({**r, "cascade": d, "cascade_sig": s, "llm_sig": (llm.get(r["number"]) or {}).get("sig")})
+        short = too_short(r["text"])
+        if short:
+            d, s = "human", None
+        cases.append({**r, "cascade": d, "cascade_sig": s, "short": short,
+                      "llm_sig": (llm.get(r["number"]) or {}).get("sig")})
     return cases
 
 
 def run(a):
     import anthropic
     from fetch_issues import load_dotenv
-    from agent import InProcess, ViaMCP, run as run_agent, sig_labels
+    from agent import PROMPTS, InProcess, ViaMCP, run as run_agent, sig_labels
     load_dotenv()
     client = anthropic.Anthropic(max_retries=4)
     labels, top = sig_labels(), m2_top3()
-    done = {json.loads(l)["number"] for l in OUT.open()} if OUT.exists() else set()
-    todo = [c for c in load_cases() if c["cascade"] == "human" and c["number"] not in done]
+    out = out_path(a.prompt)
+    done = {json.loads(l)["number"] for l in out.open()} if out.exists() else set()
+    todo = [c for c in load_cases() if c["cascade"] == "human" and not c["short"] and c["number"] not in done]
     todo = todo[:a.limit] if a.limit else todo
     print(f"{len(todo)} human-bound issues to run ({len(done)} already done)")
     backend = ViaMCP() if a.via_mcp else InProcess()
 
     def one(c):
         try:
-            r = run_agent(client, a.model, labels, c["text"], c["created_at"], top[c["number"]], c["llm_sig"], backend)
-            return {"number": c["number"], "split": c["split"], "model": a.model, **r}
+            r = run_agent(client, a.model, labels, c["text"], c["created_at"], top[c["number"]], c["llm_sig"], backend,
+                          system=PROMPTS[a.prompt])
+            return {"number": c["number"], "split": c["split"], "model": a.model, "prompt": a.prompt, **r}
         except Exception as e:
             return {"number": c["number"], "split": c["split"], "model": a.model, "error": f"{type(e).__name__}: {e}"[:300]}
 
     workers = 1 if a.via_mcp else 6
-    with OUT.open("a") as f, ThreadPoolExecutor(workers) as pool:
+    with out.open("a") as f, ThreadPoolExecutor(workers) as pool:
         for k, res in enumerate(pool.map(one, todo), 1):
             f.write(json.dumps(res) + "\n"); f.flush()
             if k % 20 == 0:
@@ -74,10 +84,11 @@ def run(a):
     print("done")
 
 
-def score(_):
+def score(a):
     cases = load_cases()
     ag = {}
-    for l in OUT.open():
+    print(f"== agent prompt {a.prompt} ==")
+    for l in out_path(a.prompt).open():
         x = json.loads(l)
         ag[x["number"]] = x
     def sim(sp, t):
@@ -87,7 +98,7 @@ def score(_):
                 continue
             lab += bool(c["gold"])
             d, s = c["cascade"], c["cascade_sig"]
-            if d == "human":
+            if d == "human" and not c["short"]:
                 x = ag.get(c["number"])
                 if x and "sig" in x and x["sig"] != "none" and not x.get("duplicate_of") and x["confidence"] >= t:
                     d, s = "auto", x["sig"]
@@ -126,5 +137,6 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--via-mcp", action="store_true")
+    ap.add_argument("--prompt", default="v1", choices=["v1", "v2"])
     a = ap.parse_args()
     run(a) if a.cmd == "run" else score(a)
