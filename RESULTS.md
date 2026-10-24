@@ -91,3 +91,17 @@ run every SIG's tests. The `[sig-x]` tag in the failing test's name matches 93% 
 still open, never routed 49 (37%) · closed, mostly fixed via PR without a label 41 (31%) · stale/rotten 30 (23%) ·
 support / wrong place 8 (6%) · duplicates 3 (2%).
 So most auto-routes of these issues are not harmful; issues that truly should not be routed are ~2-3% of all issues.
+
+## Day 4: bigger model, agent prompt v2, too-short rule (test set)
+| | top-1 | aim 95%: auto-route / precision | real-time cost per 1k issues |
+|---|---|---|---|
+| Haiku 5.5 zero-shot | 0.880 | 77.3% / 0.938 | ~$0.7 |
+| Sonnet 5.5 zero-shot | **0.907** (macro recall 0.916 vs 0.818) | **80.0% / 0.955** | ~$15 (7k-token prompt, no cache hits at 1 issue/h) |
+| Cascade + agent v1 (served, config v4) | – | 76.0% / 0.961 [0.93,0.98]; strict 0.863 | ~$0.6 |
+| Cascade + agent v2 prompt | – | 70.7% / 0.974 [0.95,0.99]; strict 0.879 | ~$0.6 |
+
+- Sonnet alone roughly matches the whole cascade, at ~25x the live cost. The cascade's point is cost, not accuracy.
+- Prompt v2 (explicit do-not-route cases) trades 5 points of coverage for 1.3 points of precision; "none" recall 25% -> 32%.
+  Serving stays on v1 because the goal is max coverage at >= 95% precision.
+- Too-short rule (< 30 body words -> human): 4% of issues; agent threshold re-tuned 0.71 -> 0.73.
+- Neither LLM says "none" much: Sonnet 14/130, Haiku 13/130 on issues that never got a SIG.

@@ -47,7 +47,7 @@ CONFIG = {
     "daily_llm_budget_usd": 1.00,  # over budget -> M2-only mode for the rest of the UTC day
     "min_body_words": 30,      # thinner issues go straight to a human (4% of issues; models are 60% right there)
     "agent_model": "claude-haiku-5-5",
-    "t_agent": 0.71,           # agent answer trusted at/above this (picked on val, see agent_eval.py score)
+    "t_agent": 0.73,           # agent answer trusted at/above this (picked on val with the too-short rule, agent_eval.py score)
 }
 
 ISSUES_Q = """
