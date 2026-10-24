@@ -122,3 +122,14 @@ Pulled 1 year of pytorch/pytorch (7,922 issues) to port the router. What the dat
 
 Takeaway for the k8s work: an LLM-first triager is what a large project chose to run in production; the k8s cascade
 reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound) at about $0.9 per 1k issues.
+
+## Leak ablation (`leak_ablation.py`, TF-IDF + logreg, same split and labels)
+| input text | test top-1 | top-1 where author did not route | aim 95%: auto-route / precision |
+|---|---|---|---|
+| clean: creation-time text, commands stripped (used everywhere) | 0.751 | 0.756 | 49.7% / 0.936 |
+| post-edit title/body, commands stripped | 0.739 | 0.728 | 49.9% / 0.927 |
+| post-edit text, `/sig` etc. left in | **0.819** | 0.744 | **59.6%** / 0.954 |
+
+- Leaving routing commands in inflates top-1 by ~7 points and coverage by ~10, all of it on issues where the author
+  named the SIG: the model copies the answer.
+- Restoring pre-edit titles/bodies made no measurable difference for this model. Kept anyway (it is the correct input).
