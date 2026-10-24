@@ -32,3 +32,21 @@ No sign that Haiku benefits from having seen the issues.
 
 ## Cost
 Batch run of 1098 requests: $0.24 total ($0.22 per 1k issues). Real-time Haiku in the shadow service: ~$0.23 per 1k issues.
+
+## Seed variance (ModernBERT-base, 3 seeds, same data and settings)
+| seed | top-1 | aim 95%: auto-route / precision |
+|---|---|---|
+| 0 | 0.857 | 55.3% / 0.980 |
+| 1 | 0.862 | 55.6% / 0.967 |
+| 2 | 0.878 | 54.6% / 0.971 |
+| first run (seed 0, before saving weights) | 0.853 | 63.9% / 0.961 |
+
+top-1 0.866 ± 0.011. Coverage at the 95% bar moves 55-64% between runs: the val set (356 labeled issues) is small, so the
+threshold it picks is noisy. Quote coverage as a range, not a single number.
+
+Cascade with the served model (seed 0, agreement rule, thresholds from val): aim 95% -> test auto-routes 68.0%, precision 0.973 [0.95,0.99].
+
+## Live shadow mode (started 2026-10-23 22:01 UTC)
+First 13 h: 2 new issues (weekend night), both captured; 1 auto-routed, correct. Too small to mean anything yet.
+Live LLM cost was $0.72 per 1k issues, ~3x the batch estimate: issues arrive ~1 per hour, so the 5-minute prompt cache is
+never reused and every call pays the 1.25x cache-write price. Config v2 turns caching off for live traffic.

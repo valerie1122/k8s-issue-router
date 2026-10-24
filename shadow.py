@@ -34,11 +34,12 @@ DB = f"{MNT}/shadow/shadow.db"
 
 # ---- cascade config: thresholds chosen on val (see RESULTS.md); bump the version when they change
 CONFIG = {
-    "version": "v1-2026-10-23",
+    "version": "v2-2026-10-24",
     "m2_run": "modernbert-s0",
-    "m2_temperature": 1.119,
-    "t_m2_alone": 0.93,        # M2 confident enough to route by itself
-    "t_m2_agree": 0.26,        # below that, route only if Haiku picks the same SIG and M2 >= this
+    "m2_temperature": 1.171,   # fitted on val for this run (m2_eval.py modernbert-s0)
+    "t_m2_alone": 0.99,        # M2 confident enough to route by itself
+    "t_m2_agree": 0.69,        # below that, route only if Haiku picks the same SIG and M2 >= this
+    "llm_cache": False,        # live traffic is ~1 issue/hour, so a 5-min cache is never hit and writes cost 1.25x
     "llm_model": "claude-haiku-5-5",
     "daily_llm_budget_usd": 1.00,  # over budget -> M2-only mode for the rest of the UTC day
 }
@@ -167,7 +168,7 @@ def poll():
         llm, err = None, None
         if spent < CONFIG["daily_llm_budget_usd"]:
             try:
-                llm = classify(client, CONFIG["llm_model"], labels, catalog, text)
+                llm = classify(client, CONFIG["llm_model"], labels, catalog, text, cache=CONFIG["llm_cache"])
                 kv_set(con, f"llm_cost:{day}", spent + llm["cost"])
             except Exception as e:  # LLM down -> cascade falls back to M2-only for this issue
                 err = f"{type(e).__name__}: {str(e)[:200]}"
@@ -242,7 +243,7 @@ def report():
     auto = [r for r in lab if r[1] == "auto"]
     hits = sum(r[2] in json.loads(r[8]) for r in auto)
     cost = sum(r[6] or 0 for r in q)
-    lat = sorted(r[5] for r in q if r[5])
+    lat = [r[5] for r in q if r[5]]
     print(f"start {kv_get(con, 'start_at')}  issues seen {n}  with human sig label {len(lab)}")
     if lab:
         print(f"auto-routed {len(auto)}/{len(lab)} = {len(auto)/len(lab):.1%}, precision "
@@ -250,5 +251,10 @@ def report():
         print(f"M2 top-1 {sum(r[3] in json.loads(r[8]) for r in lab)/len(lab):.1%}, "
               f"LLM top-1 {sum((r[4] or '') in json.loads(r[8]) for r in lab)/len(lab):.1%}")
     if lat:
-        print(f"latency p50 {lat[len(lat)//2]/1000:.1f}s p95 {lat[int(len(lat)*0.95)-1 if len(lat)>1 else 0]/1000:.1f}s; "
+        import statistics
+        p50 = statistics.median(lat) / 1000
+        p95 = sorted(lat)[min(len(lat) - 1, round(0.95 * (len(lat) - 1)))] / 1000  # nearest-rank
+        print(f"latency p50 {p50:.1f}s p95 {p95:.1f}s (n={len(lat)}); "
               f"LLM cost ${cost:.4f} total, ${1000*cost/max(n,1):.2f} per 1k issues")
+    by_ver = con.execute("SELECT config_version, COUNT(*) FROM predictions GROUP BY 1").fetchall()
+    print("rows by config version:", dict(by_ver))

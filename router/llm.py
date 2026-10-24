@@ -37,9 +37,12 @@ def schema(labels):
             "required": ["sig", "confidence", "reason"]}
 
 
-def request_params(model, labels, catalog, text, max_tokens=300):
+def request_params(model, labels, catalog, text, max_tokens=300, cache=True):
+    block = {"type": "text", "text": system_prompt(catalog)}
+    if cache:  # worth it for batches / bursts; not for one request an hour
+        block["cache_control"] = {"type": "ephemeral"}
     return {"model": model, "max_tokens": max_tokens,
-            "system": [{"type": "text", "text": system_prompt(catalog), "cache_control": {"type": "ephemeral"}}],
+            "system": [block],
             "messages": [{"role": "user", "content": "Issue:\n\n" + text[:MAX_ISSUE_CHARS]}],
             "output_config": {"format": {"type": "json_schema", "schema": schema(labels)}}}
 
@@ -51,10 +54,10 @@ def cost_usd(usage):
             + usage.output_tokens * PRICE["output"]) / 1e6
 
 
-def classify(client, model, labels, catalog, text):
+def classify(client, model, labels, catalog, text, cache=True):
     """One real-time call. Returns dict with sig/confidence/reason + tokens, cost, latency."""
     t = time.time()
-    m = client.messages.create(**request_params(model, labels, catalog, text, max_tokens=600))
+    m = client.messages.create(**request_params(model, labels, catalog, text, max_tokens=600, cache=cache))
     ms = (time.time() - t) * 1000
     out = json.loads(next(c.text for c in m.content if c.type == "text"))
     u = m.usage
