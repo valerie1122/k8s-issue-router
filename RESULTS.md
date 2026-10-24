@@ -76,3 +76,18 @@ Trust threshold 0.71 picked on val.
 - Says "none" rarely but accurately: 20 times, 17 truly no-SIG (85%), catching 25% of them. Never flagged a duplicate.
 - Tool use: search_similar_issues 506, lookup_owners 381, get_sig_charter 109 calls.
 - Shadow service config v3 adds this layer live.
+
+## Error analysis (28 wrong auto-routes, val+test, cascade v3)
+- ~1/3 CI-failure / flaky-test issues (`[Failing Test] ci-kubernetes-...`, "golang tip broken" x3 -> humans say architecture).
+- ~12 at SIG boundaries where both answers are defensible: DRA (node vs scheduling), Windows (windows vs storage/node),
+  kubelet networking (node vs network).
+- The rest: cross-cutting umbrellas (PQC, release chores) and label oddities (a title starting "sig/network:" labeled api-machinery).
+
+Tested and rejected: a CI-job -> SIG lookup built from test-infra (5,497 jobs). For issues naming a known job, the
+job's SIG matched the human label only 45% of the time: generic jobs (pull-kubernetes-e2e-gce, ci-kubernetes-unit)
+run every SIG's tests. The `[sig-x]` tag in the failing test's name matches 93% (104/112), and the models already see it.
+
+## What "no SIG after 30 days" really is (131 val+test issues)
+still open, never routed 49 (37%) · closed, mostly fixed via PR without a label 41 (31%) · stale/rotten 30 (23%) ·
+support / wrong place 8 (6%) · duplicates 3 (2%).
+So most auto-routes of these issues are not harmful; issues that truly should not be routed are ~2-3% of all issues.
