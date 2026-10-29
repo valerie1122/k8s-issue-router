@@ -133,3 +133,10 @@ reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound)
 - Leaving routing commands in inflates top-1 by ~7 points and coverage by ~10, all of it on issues where the author
   named the SIG: the model copies the answer.
 - Restoring pre-edit titles/bodies made no measurable difference for this model. Kept anyway (it is the correct input).
+
+## Live shadow mode, first 6 days (2026-10-23 22:01 UTC to 2026-10-29)
+33 new issues seen; 30 already have a human SIG label (provisional: some are not 30 days old yet).
+- Auto-routed 25 of 30 (83%), **all 25 correct** (Wilson 95% CI 0.87-1.00). ModernBERT top-1 86.7%, Haiku top-1 90.0%.
+- Latency p50 3.3 s, p95 13.3 s (agent cases). LLM cost $0.021 total, $0.65 per 1k issues; agent ran 8 times, 0 errors.
+- Rows by config: v1 2, v3 4, v4 27 (report aggregates all three).
+Consistent with the replay (76% at 0.96); the sample is small, so the CI is what to quote.
