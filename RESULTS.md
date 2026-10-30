@@ -140,3 +140,11 @@ reaches similar precision on its auto-routed share (0.96 vs <= 0.97 upper bound)
 - Latency p50 3.3 s, p95 13.3 s (agent cases). LLM cost $0.021 total, $0.65 per 1k issues; agent ran 8 times, 0 errors.
 - Rows by config: v1 2, v3 4, v4 27 (report aggregates all three).
 Consistent with the replay (76% at 0.96); the sample is small, so the CI is what to quote.
+
+## Self-review experiment (`b2_review.py`): Haiku re-checks its own first answer
+Haiku sees the issue plus its first answer and reason, and keeps or changes it. 992 of 1,098 reviews returned (106 errors).
+On the 391 labeled test issues answered in both passes:
+- top-1 0.903 first pass -> 0.900 after review. Changed 29 answers: 9 wrong->right, 10 right->wrong. **No net gain.**
+- But *whether it changed its mind* is a signal: accuracy 0.923 when the review keeps the answer vs 0.621 when it changes it.
+- Cascade layers 1-2 (ModernBERT agreement gate): 69.8% / 0.978 with first-pass answers vs 70.6% / 0.978 with reviewed ones,
+  within noise. The gate already requires agreement with an independent model, so a same-model re-check adds little.
