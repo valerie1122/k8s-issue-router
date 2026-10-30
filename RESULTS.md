@@ -148,3 +148,11 @@ On the 391 labeled test issues answered in both passes:
 - But *whether it changed its mind* is a signal: accuracy 0.923 when the review keeps the answer vs 0.621 when it changes it.
 - Cascade layers 1-2 (ModernBERT agreement gate): 69.8% / 0.978 with first-pass answers vs 70.6% / 0.978 with reviewed ones,
   within noise. The gate already requires agreement with an independent model, so a same-model re-check adds little.
+
+## Answer stability (`stability.sh`): Haiku run 3 times on the same prompt
+422 labeled test issues answered in all 3 runs.
+- top-1 per run: 0.903 / 0.915 / 0.908.
+- Same answer in all 3 runs on **96.0%** of issues (accuracy 0.919); on the 4% where runs disagree (n=17), run 1 is right 52.9%.
+- Cascade layers 1-2: the decision changes between runs on 5 of 422 issues (1.2%); auto 69.9-70.1%, precision 0.973 in every run.
+- Self-consistency (route only if all 3 runs agree with ModernBERT): 70.1% / 0.973, no gain for 3x the Haiku cost.
+LLM sampling noise is real but small and sits on the hard cases; the offline cascade numbers are stable to it.
