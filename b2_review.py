@@ -17,9 +17,20 @@ import anthropic
 from b2_zeroshot import schema, sig_catalog, system_prompt, MAX_ISSUE_CHARS
 from fetch_issues import load_dotenv
 
-MODEL = "claude-haiku-5-5"
+MODEL = "claude-haiku-5-5"          # whose first-pass answers are reviewed
+REVIEWER = "claude-haiku-5-5"       # who reviews them (--reviewer claude-sonnet-5-5)
+SUBSET = "all"                      # all | hard (only issues layers 1-2 hand to a human)
 STATE = Path("data/preds/b2_review_batch.json")
 OUT = "data/preds/B2R-{m}_{sp}.json"
+
+
+def hard_set():
+    from shadow import decide
+    rows = [json.loads(l) for l in open("data/processed/dataset.jsonl")]
+    m2 = {p["number"]: p for sp in ("val", "test") for p in json.load(open(f"data/preds/M2s0_{sp}.json"))}
+    first = first_pass()
+    return {r["number"] for r in rows if r["split"] in ("val", "test") and r["number"] in m2
+            and decide(m2[r["number"]]["sig"], m2[r["number"]]["confidence"], first.get(r["number"]), r["text"])[0] == "human"}
 
 REVIEW = ("A first pass assigned this issue to SIG \"{sig}\" with confidence {conf:.2f}, reason: \"{reason}\"\n\n"
           "Review that decision. Check whether the issue is really about code that SIG owns, and whether another SIG "
@@ -37,24 +48,30 @@ def submit():
     sys_blocks = [{"type": "text", "text": system_prompt(catalog), "cache_control": {"type": "ephemeral"}}]
     rows = [json.loads(l) for l in open("data/processed/dataset.jsonl")]
     first = first_pass()
+    keep = hard_set() if SUBSET == "hard" else None
     reqs = []
     for r in rows:
         if r["split"] not in ("val", "test") or r["number"] not in first:
+            continue
+        if keep is not None and r["number"] not in keep:
             continue
         f = first[r["number"]]
         msg = "Issue:\n\n" + r["text"][:MAX_ISSUE_CHARS] + "\n\n---\n" + REVIEW.format(
             sig=f["sig"], conf=f["confidence"], reason=f.get("reason", "").replace('"', "'"))
         reqs.append({"custom_id": str(r["number"]),
-                     "params": {"model": MODEL, "max_tokens": 600, "system": sys_blocks,
+                     "params": {"model": REVIEWER, "max_tokens": 600, "system": sys_blocks,
                                 "messages": [{"role": "user", "content": msg}],
                                 "output_config": {"format": {"type": "json_schema", "schema": schema(labels)}}}})
     b = anthropic.Anthropic().messages.batches.create(requests=reqs)
-    STATE.write_text(json.dumps({"id": b.id, "n": len(reqs), "submitted": time.time()}))
-    print(f"submitted review batch {b.id} with {len(reqs)} requests")
+    STATE.write_text(json.dumps({"id": b.id, "n": len(reqs), "submitted": time.time(),
+                                 "reviewer": REVIEWER, "subset": SUBSET}))
+    print(f"submitted review batch {b.id}: {REVIEWER} reviews {len(reqs)} {SUBSET} issues")
 
 
 def collect(wait):
+    global REVIEWER, SUBSET
     st = json.loads(STATE.read_text())
+    REVIEWER, SUBSET = st.get("reviewer", REVIEWER), st.get("subset", SUBSET)
     client = anthropic.Anthropic()
     while True:
         b = client.messages.batches.retrieve(st["id"])
@@ -81,9 +98,14 @@ def collect(wait):
         preds[rows[n]["split"]].append({"number": n, "sig": out["sig"], "reason": out["reason"],
                                         "confidence": min(max(float(out["confidence"]), 0.0), 1.0)})
     for sp, p in preds.items():
-        json.dump(p, open(OUT.format(m=MODEL, sp=sp), "w"))
+        json.dump(p, open(out_path(sp), "w"))
     print(f"wrote {sum(map(len, preds.values()))} reviewed answers, {errors} errors, usage {usage}")
     score()
+
+
+def out_path(sp):
+    tag = REVIEWER.replace("claude-", "") + ("" if SUBSET == "all" else "-hard")
+    return f"data/preds/B2R-{tag}_{sp}.json"
 
 
 def score():
@@ -93,7 +115,13 @@ def score():
     rows = [json.loads(l) for l in open("data/processed/dataset.jsonl")]
     by = {r["number"]: r for r in rows}
     first = first_pass()
-    rev = {p["number"]: p for sp in ("val", "test") for p in json.load(open(OUT.format(m=MODEL, sp=sp)))}
+    global REVIEWER, SUBSET
+    if STATE.exists():
+        st = json.loads(STATE.read_text()); REVIEWER, SUBSET = st.get("reviewer", REVIEWER), st.get("subset", SUBSET)
+    print(f"reviewer {REVIEWER}, subset {SUBSET}")
+    rev = {p["number"]: p for sp in ("val", "test") for p in json.load(open(out_path(sp)))}
+    if SUBSET == "hard":  # issues not reviewed keep their first-pass answer
+        rev = {**first, **rev}
     test = [n for n in rev if by[n]["split"] == "test" and by[n]["gold"]]
     keep = sum(rev[n]["sig"] == first[n]["sig"] for n in test)
     w2r = sum(first[n]["sig"] not in by[n]["gold"] and rev[n]["sig"] in by[n]["gold"] for n in test)
@@ -126,5 +154,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["submit", "collect", "score"])
     ap.add_argument("--wait", action="store_true")
+    ap.add_argument("--reviewer", default=REVIEWER)
+    ap.add_argument("--subset", default=SUBSET, choices=["all", "hard"])
     a = ap.parse_args()
+    REVIEWER, SUBSET = a.reviewer, a.subset
     {"submit": submit, "collect": lambda: collect(a.wait), "score": score}[a.cmd]()
