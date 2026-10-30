@@ -17,8 +17,15 @@ import yaml
 
 from fetch_issues import load_dotenv
 
+RUN = ""   # --run r2: a repeat run with the same prompt, saved separately (measures answer stability)
 STATE = Path("data/preds/b2_batch.json")
 RETRY_STATE = Path("data/preds/b2_batch_retry.json")
+
+
+def state_path(retry):
+    if RUN:
+        return Path(f"data/preds/b2_batch_{RUN}{'_retry' if retry else ''}.json")
+    return RETRY_STATE if retry else STATE
 MAX_ISSUE_CHARS = 6000
 
 
@@ -57,7 +64,7 @@ def submit(model, retry=False):
     rows = [r for r in rows if r["split"] in ("val", "test")]
     if retry:  # only the issues the first batch failed on, with more room for the answer
         done = {p["number"] for sp in ("val", "test")
-                for p in json.load(open(f"data/preds/B2-{model}_{sp}.json"))}
+                for p in json.load(open(f"data/preds/B2-{model}{'-' + RUN if RUN else ''}_{sp}.json"))}
         rows = [r for r in rows if r["number"] not in done]
         if not rows:
             print("nothing to retry: every issue already has an answer")
@@ -69,14 +76,14 @@ def submit(model, retry=False):
             for r in rows]
     client = anthropic.Anthropic()
     b = client.messages.batches.create(requests=reqs)
-    state_file = RETRY_STATE if retry else STATE
+    state_file = state_path(retry)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({"id": b.id, "model": model, "n": len(reqs), "submitted": time.time()}))
     print(f"submitted batch {b.id} with {len(reqs)} requests on {model}")
 
 
 def collect(wait, retry=False):
-    st = json.loads((RETRY_STATE if retry else STATE).read_text())
+    st = json.loads(state_path(retry).read_text())
     client = anthropic.Anthropic()
     while True:
         b = client.messages.batches.retrieve(st["id"])
@@ -109,7 +116,7 @@ def collect(wait, retry=False):
         conf = min(max(float(out["confidence"]), 0.0), 1.0)
         preds[rows[n]["split"]].append({"number": n, "sig": out["sig"], "confidence": conf,
                                         "reason": out["reason"]})
-    tag = "B2-" + st["model"]
+    tag = "B2-" + st["model"] + ("-" + RUN if RUN else "")
     for sp, p in preds.items():
         path = f"data/preds/{tag}_{sp}.json"
         if retry:  # merge into the first batch's answers
@@ -130,5 +137,7 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--retry", action="store_true", help="re-run only the issues that failed")
+    ap.add_argument("--run", default="", help="tag for a repeat run, e.g. r2 (keeps the first run's files)")
     a = ap.parse_args()
+    RUN = a.run
     submit(a.model, a.retry) if a.cmd == "submit" else collect(a.wait, a.retry)
